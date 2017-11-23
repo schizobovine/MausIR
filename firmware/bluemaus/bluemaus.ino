@@ -20,19 +20,33 @@
 // UUIDs of service and characteristics
 //
 
+
+// Magical UUIDs for UART because who would need a service to throw generic
+// text back and forth in a standard way half the planet uses already? :P
+// 6E400001-B5A3-F393-E0A9-E50E24DCCA9E // UART service
+// 6E400002-B5A3-F393-E0A9-E50E24DCCA9E // TX characteristic
+// 6E400003-B5A3-F393-E0A9-E50E24DCCA9E // RX characteristic
+
 static const uint8_t srv_uuid[] = {
-    0x71, 0x3D, 0x00, 0x00, 0x50, 0x3E, 0x4C, 0x75,
-    0xBA, 0x94, 0x31, 0x48, 0xF1, 0x8D, 0x94, 0x1E
+//    0x71, 0x3D, 0x00, 0x00, 0x50, 0x3E, 0x4C, 0x75,
+//    0xBA, 0x94, 0x31, 0x48, 0xF1, 0x8D, 0x94, 0x1E
+// 6E400001-B5A3-F393-E0A9-E50E24DCCA9E // UART service
+  0x6E, 0x40, 0x00, 0x01, 0xB5, 0xA3, 0xF3, 0x93,
+  0xE0, 0xA9, 0xE5, 0x0E, 0x24, 0xDC, 0xCA, 0x9E
 };
 
 static const uint8_t srv_tx_uuid[] = {
-    0x71, 0x3D, 0x00, 0x03, 0x50, 0x3E, 0x4C, 0x75,
-    0xBA, 0x94, 0x31, 0x48, 0xF1, 0x8D, 0x94, 0x1E
+//    0x71, 0x3D, 0x00, 0x03, 0x50, 0x3E, 0x4C, 0x75,
+//    0xBA, 0x94, 0x31, 0x48, 0xF1, 0x8D, 0x94, 0x1E
+  0x6E, 0x40, 0x00, 0x02, 0xB5, 0xA3, 0xF3, 0x93,
+  0xE0, 0xA9, 0xE5, 0x0E, 0x24, 0xDC, 0xCA, 0x9E
 };
 
 static const uint8_t srv_rx_uuid[] = {
-    0x71, 0x3D, 0x00, 0x02, 0x50, 0x3E, 0x4C, 0x75,
-    0xBA, 0x94, 0x31, 0x48, 0xF1, 0x8D, 0x94, 0x1E
+//    0x71, 0x3D, 0x00, 0x02, 0x50, 0x3E, 0x4C, 0x75,
+//    0xBA, 0x94, 0x31, 0x48, 0xF1, 0x8D, 0x94, 0x1E
+  0x6E, 0x40, 0x00, 0x03, 0xB5, 0xA3, 0xF3, 0x93,
+  0xE0, 0xA9, 0xE5, 0x0E, 0x24, 0xDC, 0xCA, 0x9E
 };
 
 static const uint8_t uart_base_uuid_rev[] = {
@@ -45,13 +59,14 @@ static const uint8_t uart_base_uuid_rev[] = {
 //
 
 //#define TXRX_BUF_LEN    20
-static const size_t CHAR_RX_VAL_BUFSZ = 3;
+static const size_t CHAR_RX_VAL_BUFSZ = 4;
 static const size_t TXRX_BUF_LEN      = 20;
 static const int BLE_TX_POWER         = 4;
 static const int BLE_ADVERT_TIMEOUT   = 0;   // seconds
 static const int BLE_ADVERT_INTERVAL  = 160; // multiples of 0.625ms (wat)
 static const char SHORT_LOCAL_NAME[]  = "TXRX";
 static const char DEVICE_NAME[]       = "BlueMaus";
+static const uint8_t RESPONSE[]       = "OK";
 
 //
 // Global objects
@@ -126,24 +141,32 @@ void gattServerWriteCallBack(const GattWriteCallbackParams *Handler) {
 
     /* DO DISPATCH HERE */
 
+    // Write back a response
+    ble.updateCharacteristicValue(
+        char_recv.getValueAttribute().getHandle(),
+        RESPONSE,
+        sizeof(RESPONSE)
+    );
+
   }
 }
 
 // Timer callback
 
 void timerCallBack() {
-    uint8_t buf[CHAR_RX_VAL_BUFSZ];
-    uint32_t now = millis();
+    //uint8_t buf[CHAR_RX_VAL_BUFSZ];
+    //uint32_t now = millis();
 
     // Update the "receive" characteristic with the time
-    buf[0] = (now & 0x00FF0000) >> 16;
-    buf[1] = (now & 0x0000FF00) >> 8;
-    buf[2] = (now & 0x000000FF) >> 0;
-    ble.updateCharacteristicValue(
-        char_recv.getValueAttribute().getHandle(),
-        buf,
-        CHAR_RX_VAL_BUFSZ
-    );
+    //buf[0] = 'f';
+    //buf[1] = 'o';
+    //buf[2] = 'o';
+    //buf[3] = '\0';
+    //ble.updateCharacteristicValue(
+    //    char_recv.getValueAttribute().getHandle(),
+    //    buf,
+    //    CHAR_RX_VAL_BUFSZ
+    //);
 
     // Flip our glow stick to say we're still here
     if (flip) {
@@ -205,3 +228,5 @@ void setup() {
 void loop() {
     ble.waitForEvent();
 }
+
+// vi: syntax=arduino

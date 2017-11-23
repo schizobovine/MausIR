@@ -11,7 +11,6 @@
 #include<IRremote.h>
 #include<Adafruit_DotStar.h>
 #include<Metro.h>
-#include "wdt.h"
 
 #define DOTSTAR_DAT 7
 #define DOTSTAR_CLK 8
@@ -58,7 +57,6 @@ Adafruit_DotStar glowy = Adafruit_DotStar(
 
 int speed = 0;
 
-//Watchdog dog = Watchdog();
 Metro tock = Metro(200);
 
 //void dump_decode(decode_results *results) {
@@ -177,19 +175,17 @@ void setup() {
   recv_a.enableIRIn();
   recv_b.enableIRIn();
 
-  // Setup watchdog for sleeping
-  //dog.enable();
-
 }
 
 void loop() {
+
   if (tock.check()) {
     check_for_ir_data();
     tock.reset();
   }
-  //dog.sleep();
+
+  // I tried to use the WDT instead but it was a bundle of fail to get all the
+  // libraries working together. Until then, 200ms poll interval and 19mA
+  // powerdraw (sigh).
   delay(200);
-  //int downtime = Watchdog.sleep();
-  //Serial.print(F("SQUEAK napped for "));
-  //Serial.println(downtime);
 }

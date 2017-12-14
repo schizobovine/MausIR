@@ -1,7 +1,7 @@
 //
-// vibrobot.ino
+// redmaus.ino
 //
-// Modified mouse robot toy for my cats.
+// Modified mouse robot toy for my cats. IR remote controlled.
 //
 // Author:  Sean Caulfield <sean@yak.net>
 // License: GPLv2.0
@@ -11,18 +11,76 @@
 #include<IRremote.h>
 #include<Metro.h>
 
+//
 // I think
+//
 // A <=> RIGHT
 // B <=> LEFT
+//
 
-#define PIN_MOTOR_AIN1 3
-#define PIN_MOTOR_AIN2 5
-#define PIN_MOTOR_BIN1 6
-#define PIN_MOTOR_BIN2 10
-#define PIN_IR_RECV 2
-//#define PIN_LED       13
+//
+// DRV8835 Cheat Sheet
+//
 
-// For SparkFun's custom IR remote
+// +-------------------------------------------------------------------+
+// | MODE=0 (default)                                                  |
+// +-------+-------+--------+--------+---------------------------------+
+// |  xIN1 |  xIN2 |  xOUT1 |  xOUT2 | Description                     |
+// +-------+-------+--------+--------+---------------------------------+
+// |    0  |    0  |  OPEN  |  OPEN  | coast (output floating)         |
+// +-------+-------+--------+--------+---------------------------------+
+// |  PWM  |    0  |  PWM   |   LOW  | forward/coast at PWM%           |
+// +-------+-------+--------+--------+---------------------------------+
+// |    0  |  PWM  |   LOW  |  PWM   | reverse/coast at PWM%           |
+// +-------+-------+--------+--------+---------------------------------+
+// |    1  |  PWM  |  ~PWM  |   LOW  | forward/brake at (100 - PWM%)   |
+// +-------+-------+--------+--------+---------------------------------+
+// |  PWM  |    1  |   LOW  |  ~PWM  | reverse/brake at (100 - PWM%)   |
+// +-------+-------+--------+--------+---------------------------------+
+// |    1  |    1  |   LOW  |   LOW  | brake low (output short to GND) |
+// +-------+-------+--------+--------+---------------------------------+
+
+// +-------------------------------------------------------------+
+// | MODE=1 (pulled high with 10K)                               |
+// +-----+-----+-------+-------+---------------------------------+
+// | xPH | xEN | xOUT1 | xOUT2 | Description                     |
+// +-----+-----+-------+-------+---------------------------------+
+// |  0  | PWM |  PWM  |   L   | forward/brake at PWM%           |
+// +-----+-----+-------+-------+---------------------------------+
+// |  1  | PWM |   L   |  PWM  | reverse/brake at PWM%           |
+// +-----+-----+-------+-------+---------------------------------+
+// |  x  |  0  |   L   |   L   | brake low (output short to GND) |
+// +-----+-----+-------+-------+---------------------------------+
+
+// Pin mappings
+
+#define PIN_IR_RECV    2
+#define PIN_MOTOR_PH_R 3
+#define PIN_MOTOR_EN_R 5
+#define PIN_MOTOR_PH_L 10
+#define PIN_MOTOR_EN_L 6
+
+// PWM parameter to control speed
+
+#define SPEED 128
+
+// Motor control macros because I like horrifying people
+
+#define FORWARD 0
+#define REVERSE 1
+
+#define MOTOR_R(pwm, dir) do { \
+  digitalWrite(PIN_MOTOR_PH_R, (dir)); \
+  analogWrite(PIN_MOTOR_EN_R, (pwm)); \
+} while (0)
+
+#define MOTOR_L(pwm, dir) do { \
+  digitalWrite(PIN_MOTOR_PH_L, (dir)); \
+  analogWrite(PIN_MOTOR_EN_L, (pwm)); \
+} while (0)
+
+// IR codes from SparkFun's custom IR remote
+
 #define NEC_IR_CODE_UP     0x10EFA05F
 #define NEC_IR_CODE_DOWN   0x10EF00FF
 #define NEC_IR_CODE_LEFT   0x10EF10EF
@@ -34,181 +92,126 @@
 #define NEC_IR_CODE_POWER  0x10EFD827
 #define NEC_IR_REPEAT      0xFFFFFFFF
 
-// How often to poll for IR data
-#define TIMER_IR_CHECK_USEC 200000
-#define TIMER_IR_CHECK_MS   200
+// DEBUG OUTPUT (A LA DEATH OF RATS)
 
-// PWM limits
-#define PWM_MIN -127
-#define PWM_MAX 128
-#define PWM_ABS_MIN 0
-#define PWM_ABS_MAX 255
-#define PWM_INC 32
-#define PWM_DEC PWM_INC
-
-#define DUTY(x) (map((x), PWM_MIN, PWM_MAX, PWM_ABS_MIN, PWM_ABS_MAX))
 #define SQUEAK(a) do { \
   Serial.print(F("SQUEAK ")); \
   Serial.println((a)); \
 } while(0)
+
 #define SQUEAK2(a, b) do { \
   Serial.print(F("SQUEAK ")); \
   Serial.print(F(a)); \
   Serial.println((b)); \
 } while(0)
 
+// Objects for processing IR data
 IRrecv recv(PIN_IR_RECV);
-Metro tock = Metro(200);
-
 decode_results results;
 
-// Current & last speed settings
-int curr_pwm_a = 0;
-int curr_pwm_b = 0;
-int last_pwm_a = 0;
-int last_pwm_b = 0;
+// Command timer, reset each time a new IR command comes in; once countdown
+// hits zero, resume "default" action which is parked.
+const uint32_t CMD_LEN_MS = 200;
+Metro timer = Metro(CMD_LEN_MS);
 
-//void dump_decode(decode_results *results) {
-//  Serial.print(millis());
-//  Serial.print(F(" SQUEAK type:"));
-//  Serial.print(results->decode_type, DEC);
-//  Serial.print(F(" bits:"));
-//  Serial.print(results->bits, DEC);
-//  Serial.print(F(" hex:"));
-//  Serial.print(results->value, HEX);
-//  if (results->overflow)
-//    Serial.print(F(" Overflow!"));
-//  Serial.println();
-//}
-
-void dispatch_decode(decode_results *results) {
+// Decode incoming IR command and return next action
+void decode_cmd(decode_results *results) {
 
   // Ignore non-NEC IR codes
   if (results->decode_type != NEC) {
+    SQUEAK2("WAT (type) ", results->decode_type);
+    SQUEAK2("WAT (value) ", results->value);
     return;
   }
 
   // Dispatch based on incoming IR command
   switch (results->value) {
 
-    case NEC_IR_CODE_A:
-    case NEC_IR_CODE_B:
-    case NEC_IR_CODE_C:
+    case NEC_IR_CODE_LEFT:      // Turn left
+      SQUEAK(F("LEFT"));
+      MOTOR_L(SPEED, REVERSE);
+      MOTOR_R(SPEED, FORWARD);
+      timer.reset();
       break;
 
-    // Increase speed one level for channel a
-    case NEC_IR_CODE_RIGHT:
-      last_pwm_a = curr_pwm_a;
-      curr_pwm_a = constrain(curr_pwm_a + PWM_INC, PWM_MIN, PWM_MAX);
+    case NEC_IR_CODE_RIGHT:     // Turn right
+      SQUEAK(F("RIGHT"));
+      MOTOR_L(SPEED, FORWARD);
+      MOTOR_R(SPEED, REVERSE);
+      timer.reset();
       break;
 
-    // Decrease speed one level for channel a
-    case NEC_IR_CODE_LEFT:
-      last_pwm_a = curr_pwm_a;
-      curr_pwm_a = constrain(curr_pwm_a - PWM_DEC, PWM_MIN, PWM_MAX);
+    case NEC_IR_CODE_UP:        // Go forwards
+      SQUEAK(F("FWD"));
+      MOTOR_L(SPEED, FORWARD);
+      MOTOR_R(SPEED, FORWARD);
+      timer.reset();
       break;
 
-    // Increase speed one level for channel b
-    case NEC_IR_CODE_UP:
-      last_pwm_b = curr_pwm_b;
-      curr_pwm_b = constrain(curr_pwm_b + PWM_INC, PWM_MIN, PWM_MAX);
+    case NEC_IR_CODE_DOWN:      // Go backwards
+      SQUEAK(F("REV"));
+      MOTOR_L(SPEED, REVERSE);
+      MOTOR_R(SPEED, REVERSE);
+      timer.reset();
       break;
 
-    // Decrease speed one level for channel b
-    case NEC_IR_CODE_DOWN:
-      last_pwm_b = curr_pwm_b;
-      curr_pwm_b = constrain(curr_pwm_b - PWM_DEC, PWM_MIN, PWM_MAX);
-      break;
-
-    // Stop
     case NEC_IR_CODE_POWER:
-    case NEC_IR_CODE_CENTER:
-      last_pwm_a = curr_pwm_a;
-      curr_pwm_a = 0;
-      last_pwm_b = curr_pwm_b;
-      curr_pwm_b = 0;
+    case NEC_IR_CODE_CENTER:    // Stop
+      MOTOR_L(0, FORWARD);
+      MOTOR_R(0, FORWARD);
+      SQUEAK(F("STOP"));
       break;
 
-    // Ignore other codes
-    case NEC_IR_REPEAT:
-    default:
+    case NEC_IR_REPEAT:         // Keep doing last action
+      timer.reset();
+      SQUEAK(F("KEEP FIRING, ASSHOLES!"));
+      break;
+
+    default:                    // Ignore other codes
       SQUEAK2("WAT ", results->value);
       break;
   }
 
-  if (curr_pwm_a != last_pwm_a) {
-    if (curr_pwm_a > 0) { // forward/coast
-      analogWrite(PIN_MOTOR_AIN1, DUTY(curr_pwm_a));
-      digitalWrite(PIN_MOTOR_AIN2, LOW);
-      SQUEAK2("A (fwd) = ", DUTY(curr_pwm_a));
-    } else { // reverse/coast
-      digitalWrite(PIN_MOTOR_AIN1, LOW);
-      analogWrite(PIN_MOTOR_AIN2, DUTY(curr_pwm_a));
-      SQUEAK2("A (rev) = ", DUTY(curr_pwm_a));
-    }
-  } else {
-    digitalWrite(PIN_MOTOR_AIN1, LOW);
-    digitalWrite(PIN_MOTOR_AIN2, LOW);
-    SQUEAK(F("A STOP"));
-  }
-
-  if (curr_pwm_b != last_pwm_b) {
-    if (curr_pwm_b > 0) { // forward/coast
-      analogWrite(PIN_MOTOR_BIN1, DUTY(curr_pwm_b));
-      digitalWrite(PIN_MOTOR_BIN2, LOW);
-      SQUEAK2(" B (fwd) = ", DUTY(curr_pwm_b));
-    } else { // reverse/coast
-      digitalWrite(PIN_MOTOR_BIN1, LOW);
-      analogWrite(PIN_MOTOR_BIN2, DUTY(curr_pwm_b));
-      SQUEAK2(" B (rev) = ", DUTY(curr_pwm_b));
-    }
-  } else {
-    digitalWrite(PIN_MOTOR_BIN1, LOW);
-    digitalWrite(PIN_MOTOR_BIN2, LOW);
-    SQUEAK(F("B STOP"));
-  }
-
-}
-
-// Async routine to check for newly received IR data and dispatch any commands found
-void check_for_ir_data() {
-  if (recv.decode(&results)) {
-    recv.resume();
-    //dump_decode(&results;
-    dispatch_decode(&results);
-  }
 }
 
 void setup() {
 
   // Set motor pins as outputs
-  pinMode(PIN_MOTOR_AIN1, OUTPUT);
-  pinMode(PIN_MOTOR_AIN2, OUTPUT);
-  pinMode(PIN_MOTOR_BIN1, OUTPUT);
-  pinMode(PIN_MOTOR_BIN2, OUTPUT);
+  pinMode(PIN_MOTOR_PH_R, OUTPUT);
+  pinMode(PIN_MOTOR_EN_R, OUTPUT);
+  pinMode(PIN_MOTOR_PH_L, OUTPUT);
+  pinMode(PIN_MOTOR_EN_L, OUTPUT);
 
-  // Set motors to freewheel
-  digitalWrite(PIN_MOTOR_AIN1, LOW);
-  digitalWrite(PIN_MOTOR_AIN2, LOW);
-  digitalWrite(PIN_MOTOR_BIN1, LOW);
-  digitalWrite(PIN_MOTOR_BIN2, LOW);
+  // Set motors to parked
+  MOTOR_L(0, FORWARD);
+  MOTOR_R(0, FORWARD);
 
   // Start IR receivers
+  pinMode(PIN_IR_RECV, INPUT);
   recv.enableIRIn();
 
   // Say hi
-  while (!Serial)
-    ;
   Serial.begin(9600);
-  SQUEAK(F("B STOP"));
+  SQUEAK(F("SQUEAK SQUEAK"));
 
 }
 
 void loop() {
 
-  if (tock.check()) {
-    check_for_ir_data();
-    tock.reset();
+  // Check if new IR command has been sent
+  if (recv.decode(&results)) {
+    recv.resume(); //immediately resume looking for input
+    //dump_decode(&results;
+    decode_cmd(&results);
+  }
+
+  // Otherwise, check if our command timer has expired and reset the motors to
+  // coast
+  if (timer.check()) {
+    digitalWrite(PIN_MOTOR_PH_R, LOW);
+    analogWrite(PIN_MOTOR_EN_R, LOW);
+    digitalWrite(PIN_MOTOR_PH_L, LOW);
+    analogWrite(PIN_MOTOR_EN_L, LOW);
   }
 
   // I tried to use the WDT instead but it was a bundle of fail to get all the

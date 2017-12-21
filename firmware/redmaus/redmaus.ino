@@ -10,12 +10,11 @@
 #include<Arduino.h>
 #include<IRremote.h>
 #include<Metro.h>
+#include<LowPower.h>
 
 //
-// I think
-//
-// A <=> RIGHT
-// B <=> LEFT
+// A <=> LEFT
+// B <=> RIGHT
 //
 
 //
@@ -55,14 +54,14 @@
 // Pin mappings
 
 #define PIN_IR_RECV    2
-#define PIN_MOTOR_PH_R 3
-#define PIN_MOTOR_EN_R 5
-#define PIN_MOTOR_PH_L 10
-#define PIN_MOTOR_EN_L 6
+#define PIN_MOTOR_PH_R 10 //3
+#define PIN_MOTOR_EN_R 6  //5
+#define PIN_MOTOR_PH_L 3  //10
+#define PIN_MOTOR_EN_L 5  //6
 
 // PWM parameter to control speed
 
-#define SPEED 128
+#define SPEEDS_STRAIGHT 255
 
 // Motor control macros because I like horrifying people
 
@@ -94,6 +93,9 @@
 
 // DEBUG OUTPUT (A LA DEATH OF RATS)
 
+#if (0) // set to 0 to disable debugging
+
+#define SKETCH_DEBUG 1
 #define SQUEAK(a) do { \
   Serial.print(F("SQUEAK ")); \
   Serial.println((a)); \
@@ -105,6 +107,14 @@
   Serial.println((b)); \
 } while(0)
 
+#else
+
+#define SKETCH_DEBUG 0
+#define SQUEAK(a)
+#define SQUEAK2(a, b)
+
+#endif
+
 // Objects for processing IR data
 IRrecv recv(PIN_IR_RECV);
 decode_results results;
@@ -113,6 +123,15 @@ decode_results results;
 // hits zero, resume "default" action which is parked.
 const uint32_t CMD_LEN_MS = 200;
 Metro timer = Metro(CMD_LEN_MS);
+bool running = false;
+
+// Controls how fast fwd/backwards we go
+#define SPEED_SLOW 128
+#define SPEED_FAST 255
+uint8_t curr_speed = SPEED_SLOW;
+
+// Controls turn rate
+#define SPEED_TURN 64
 
 // Decode incoming IR command and return next action
 void decode_cmd(decode_results *results) {
@@ -127,32 +146,46 @@ void decode_cmd(decode_results *results) {
   // Dispatch based on incoming IR command
   switch (results->value) {
 
+    case NEC_IR_CODE_A:         // Go slow
+      SQUEAK(F("SLOW"));
+      curr_speed = SPEED_SLOW;
+      break;
+
+    case NEC_IR_CODE_B:         // Go fast
+      SQUEAK(F("FAST"));
+      curr_speed = SPEED_FAST;
+      break;
+
     case NEC_IR_CODE_LEFT:      // Turn left
       SQUEAK(F("LEFT"));
-      MOTOR_L(SPEED, REVERSE);
-      MOTOR_R(SPEED, FORWARD);
+      MOTOR_L(SPEED_TURN, REVERSE);
+      MOTOR_R(SPEED_TURN, FORWARD);
       timer.reset();
+      running = true;
       break;
 
     case NEC_IR_CODE_RIGHT:     // Turn right
       SQUEAK(F("RIGHT"));
-      MOTOR_L(SPEED, FORWARD);
-      MOTOR_R(SPEED, REVERSE);
+      MOTOR_L(SPEED_TURN, FORWARD);
+      MOTOR_R(SPEED_TURN, REVERSE);
       timer.reset();
+      running = true;
       break;
 
     case NEC_IR_CODE_UP:        // Go forwards
       SQUEAK(F("FWD"));
-      MOTOR_L(SPEED, FORWARD);
-      MOTOR_R(SPEED, FORWARD);
+      MOTOR_L(curr_speed, FORWARD);
+      MOTOR_R(curr_speed, FORWARD);
       timer.reset();
+      running = true;
       break;
 
     case NEC_IR_CODE_DOWN:      // Go backwards
       SQUEAK(F("REV"));
-      MOTOR_L(SPEED, REVERSE);
-      MOTOR_R(SPEED, REVERSE);
+      MOTOR_L(curr_speed, REVERSE);
+      MOTOR_R(curr_speed, REVERSE);
       timer.reset();
+      running = true;
       break;
 
     case NEC_IR_CODE_POWER:
@@ -160,11 +193,14 @@ void decode_cmd(decode_results *results) {
       MOTOR_L(0, FORWARD);
       MOTOR_R(0, FORWARD);
       SQUEAK(F("STOP"));
+      running = false;
       break;
 
     case NEC_IR_REPEAT:         // Keep doing last action
-      timer.reset();
-      SQUEAK(F("KEEP FIRING, ASSHOLES!"));
+      if (running) {
+        timer.reset();
+        SQUEAK(F("KEEP FIRING, ASSHOLES!"));
+      }
       break;
 
     default:                    // Ignore other codes
@@ -191,8 +227,10 @@ void setup() {
   recv.enableIRIn();
 
   // Say hi
+#if SKETCH_DEBUG
   Serial.begin(9600);
   SQUEAK(F("SQUEAK SQUEAK"));
+#endif
 
 }
 
@@ -214,9 +252,22 @@ void loop() {
     analogWrite(PIN_MOTOR_EN_L, LOW);
   }
 
-  // I tried to use the WDT instead but it was a bundle of fail to get all the
-  // libraries working together. Until then, 200ms poll interval and 19mA
-  // powerdraw (sigh).
-  delay(200);
+  // If we're still running a command, don't go into standby yet
+  if (running) {
+    delay(120);
+
+  // Otherwise, go into low power mode
+  } else {
+    LowPower.idle(
+      SLEEP_120MS
+      , ADC_OFF
+      , TIMER2_ON
+      , TIMER1_ON
+      , TIMER0_ON
+      , SPI_OFF
+      , (SKETCH_DEBUG ? USART0_ON : USART0_OFF)
+      , TWI_OFF
+    );
+  }
 
 }

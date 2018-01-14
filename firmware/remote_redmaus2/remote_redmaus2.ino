@@ -13,8 +13,8 @@
 #include<IRLib_P07_NECx.h>
 #include<IRLibCombo.h>
 
-#define PIN_X    A0
-#define PIN_Y    A1
+#define PIN_X    A5
+#define PIN_Y    A4
 #define PIN_IRDA  3
 #define PIN_LED  13
 
@@ -86,8 +86,8 @@ void loop() {
     // Construct command buffer
     cmd = (((uint16_t)curr_x) & 0xFF) << 8 | (((uint16_t)curr_y) & 0xFF);
     if (cmd == 0) {
-      cmd = 0xDEADBEEF;
-      bits = 32;
+      cmd = 0xBEEF;
+      bits = 16;
     } else {
       bits = 16;
     }

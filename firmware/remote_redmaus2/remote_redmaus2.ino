@@ -8,11 +8,10 @@
 //
 
 #include<Arduino.h>
+#include<IRLibAll.h>
+#include<Metro.h>
 
-#include<IRLibSendBase.h>
-#include<IRLib_P07_NECx.h>
-#include<IRLibCombo.h>
-
+#define SKETCH_DEBUG 1
 #define PIN_X    A5
 #define PIN_Y    A4
 #define PIN_IRDA  3
@@ -21,6 +20,9 @@
 // Number of low order bits to shave off the ADC readings before relaying to
 // the mouse
 #define DROPBITS 2
+
+// Microseconds between poll intervals
+#define DELAY_US 70
 
 // Closely related to the calibration values, but not something that will
 // (ever)change is the midpoint of 8 bit unsigned integers (oh for the love of
@@ -32,8 +34,11 @@ const int16_t MIDPOINT_Y = 127;
 IRsend ir;
 uint32_t cmd = 0;
 uint8_t bits = 16;
+//Metro pollTimer = Metro(DELAY_US);
 
 // Joystick position data
+int16_t reading_x = 0;
+int16_t reading_y = 0;
 int16_t last_x = 0;
 int16_t last_y = 0;
 int16_t curr_x = 0;
@@ -51,12 +56,12 @@ void setup() {
   pinMode(PIN_IRDA, OUTPUT);
   pinMode(PIN_LED, OUTPUT);
 
-  last_x = curr_x = calibration_x;
-  last_y = curr_y = calibration_y;
+  //last_x = curr_x = calibration_x;
+  //last_y = curr_y = calibration_y;
 
 #if SKETCH_DEBUG
   if (Serial) {
-    Serial.begin(9600);
+    Serial.begin(57600);
     Serial.println(F("SQUEAK")); // Say hi
   }
 #endif
@@ -65,13 +70,21 @@ void setup() {
 
 void loop() {
 
-  // Read analog conversion for joystick
-  curr_x = (analogRead(PIN_X) >> DROPBITS);
-  curr_y = (analogRead(PIN_Y) >> DROPBITS);
+  // Only check for new data every so often
+  //if (pollTimer.check()) {
 
-  // Re-home coordinates based on calibration settings
-  curr_x = curr_x - calibration_x + MIDPOINT_X;
-  curr_y = curr_y - calibration_y + MIDPOINT_Y;
+    // Read analog conversion for joystick
+    reading_x = (analogRead(PIN_X) >> DROPBITS);
+    reading_y = (analogRead(PIN_Y) >> DROPBITS);
+
+    // Re-home coordinates based on calibration settings
+    curr_x = reading_x - calibration_x + MIDPOINT_X;
+    curr_y = reading_y - calibration_y + MIDPOINT_Y;
+
+    // Reset poll timer
+    //pollTimer.reset();
+
+  //}
 
   // If updated position, send command(s)
   if (curr_x != last_x || curr_y != last_y) {

@@ -9,23 +9,19 @@
 //
 
 #include<Arduino.h>
-#include<IRLibDecodeBase.h>
-#include<IRLib_P01_NEC.h>
-#include<IRLib_P07_NECx.h>
-#include<IRLibCombo.h>
-#include<IRLibRecv.h>
-#include<IRLibRecvPCI.h>
+#include<IRLibAll.h>
 
 #define PIN_IRDA 2
 
 IRdecode  decoder;
-IRrecvPCI recv(PIN_IRDA);
+//IRrecvPCI recv(PIN_IRDA);
+IRrecv recv(PIN_IRDA);
 uint16_t buff[RECV_BUF_LENGTH];
 
 void setup() {
 
   pinMode(PIN_IRDA, INPUT);
-  recv.enableAutoResume(buff);
+  //recv.enableAutoResume(buff);
   recv.enableIRIn();
 
   Serial.begin(115200);
@@ -37,15 +33,17 @@ void loop() {
 
   // Check if new IR command has been sent
   if (recv.getResults()) {
-    recv.enableIRIn();
     decoder.decode();
     //decoder.dumpResults(false);
     Serial.print(F("proto "));
     Serial.print(decoder.protocolNum);
+    Serial.print(F(" addr "));
+    Serial.print(decoder.address);
     Serial.print(F(" val "));
     Serial.print(decoder.value, HEX);
     Serial.print(F(" bits "));
     Serial.println(decoder.bits);
+    recv.enableIRIn();
   }
 
 }

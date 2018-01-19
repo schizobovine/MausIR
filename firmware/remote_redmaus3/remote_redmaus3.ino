@@ -16,7 +16,10 @@
 
 // Enables debugging information output on Serial.
 // Comment out/undefine to disable debugging.
-#define SKETCH_DEBUG 1
+#define SKETCH_DEBUG 0
+
+// Enable visible LED flashes when using IR LED
+#define FLASH_LED 1
 
 // Hardware configuration
 #define PIN_IRDA  3
@@ -25,9 +28,12 @@
 // Microseconds between input poll intervals
 const int DELAY_US = 70;
 
-// Milliseconds to wait for input data to change (at all) before going to low
-// power mode.
-const uint32_t SLEEP_US = 5*60*1000*1000;
+// Microseconds (?) to wait for input data to change (at all) before powering
+// off for a whole second to save power.
+const uint32_t SLEEP_TIMEOUT_US = 10000L;
+
+// Amount of time to power down for
+period_t SLEEP_DURATION = SLEEP_1S;
 
 // Object(s) for processing IR data
 IRsend ir;
@@ -36,7 +42,7 @@ uint8_t bits = 32;
 
 // Timers adnd such
 Metro pollTimer = Metro(DELAY_US);
-Metro sleepTimer = Metro(SLEEP_US);
+Metro sleepTimer = Metro(SLEEP_TIMEOUT_US);
 
 // Wiichuck controller
 ArduinoNunchuk nunchuk = ArduinoNunchuk();
@@ -106,8 +112,10 @@ void loop() {
   // If updated position, send command(s)
   if (curr_x != last_x || curr_y != last_y) {
 
+#if FLASH_LED
     // For debugging, fire visible LED and dump to serial
     digitalWrite(PIN_LED, HIGH);
+#endif
 
     // Save last positions
     last_x = curr_x;
@@ -119,8 +127,10 @@ void loop() {
     // Send command buffer
     ir.send(NECX, cmd, bits);
 
+#if FLASH_LED
     // Disable LED since we're done now
     digitalWrite(PIN_LED, LOW);
+#endif
 
 #if SKETCH_DEBUG
     Serial.print(F("x "));
@@ -135,23 +145,32 @@ void loop() {
     // Reset sleep timer since something wiggled
     sleepTimer.reset();
 
-  //} else if (sleepTimer.check()) {
-    //LowPower.idle(
-    //  SLEEP_120MS
-    //  , ADC_OFF
-    //  , TIMER2_ON
-    //  , TIMER1_ON
-    //  , TIMER0_ON
-    //  , SPI_OFF
-    //  , (SKETCH_DEBUG ? USART0_ON : USART0_OFF)
-    //  , TWI_OFF
-    //);
-    
-    // TODO: BUTTS
+  } else if (sleepTimer.check()) {
+
+    LowPower.powerDown(SLEEP_DURATION, ADC_OFF, BOD_OFF);
+
+    // Leaving this off so that if the input isn't immediately changed before
+    // the next check, we will go right back to sleep (i.e., it's the case
+    // where there's no active user so we should save power aggressively).
+
     //sleepTimer.reset();
+
+  } else {
+
+    // Go into CPU idle state until next input data poll
+    LowPower.idle(
+      SLEEP_60MS
+      , ADC_OFF
+      , TIMER2_ON
+      , TIMER1_ON
+      , TIMER0_ON
+      , SPI_OFF
+      , (SKETCH_DEBUG ? USART0_ON : USART0_OFF)
+      , TWI_ON
+    );
   }
 
 }
 
 //////////////////////////////////////////////////////////////////////
-// vi: ts=4 sw=4 expandtab syntax=arduino
+// vi: ts=2 sw=2 expandtab syntax=arduino

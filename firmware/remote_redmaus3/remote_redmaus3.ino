@@ -17,7 +17,7 @@
 
 // Enables debugging information output on Serial.
 // Comment out/undefine to disable debugging.
-#define SKETCH_DEBUG 0
+#define SKETCH_DEBUG 1
 
 // Enable visible LED flashes when using IR LED
 #define FLASH_LED 1
@@ -27,7 +27,7 @@
 #define PIN_LED  13
 
 // Microseconds between input poll intervals
-const int DELAY_US = 70;
+const int DELAY_US = 100;
 
 // Microseconds (?) to wait for input data to change (at all) before powering
 // off for a whole second to save power.

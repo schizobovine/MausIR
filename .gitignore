@@ -48,3 +48,6 @@ eagle.epf
 
 # Arduino build directories
 build-*/
+
+hardware/Adafruit-Bluefruit-LE-UART-Friend-PCB-master/
+hardware/Adafruit-nRF52-Bluefruit-Feather-PCB-master/

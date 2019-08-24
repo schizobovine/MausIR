@@ -40,7 +40,7 @@ const uint32_t BUTTON_MASK =
 #define I2C_ADDR_SEESAW 0x49
 
 #define MIN_X_DELTA 3
-#define MIN_Y_DELTA 3
+#define MIN_Y_DELTA 30
 
 #define HAS_X_MOVED (abs((x) - (last_x)) > MIN_X_DELTA)
 #define HAS_Y_MOVED (abs((y) - (last_y)) > MIN_Y_DELTA)
@@ -53,12 +53,22 @@ Adafruit_seesaw joy;
 BLEClientUart bleuart;
 
 uint32_t butts = 0; //store buttons pressed in irq handler
-int last_x = 0;
-int last_y = 0;
-int x = 0;
-int y = 0;
+volatile bool changed = false;
+//int last_x = 0;
+//int last_y = 0;
+//int x = 0;
+//int y = 0;
 
-void bleuart_rx_callback() {
+/**
+ * Invoked when UART receives data.
+ * @param uart_svc Reference to service object where data arrived (should be bleuart).
+ */
+void bleuart_rx_callback(BLEClientUart &uart_svc) {
+  DPRINT(F("RX < "));
+  while (uart_svc.available()) {
+    DPRINT((char)uart_svc.read());
+  }
+  DPRINTLN();
 }
 
 /**
@@ -99,6 +109,13 @@ void scan_callback(ble_gap_evt_adv_report_t *report) {
   }
 }
 
+/**
+ * Invoked when the seesaw controller sends an IRQ.
+ */
+void joy_irq() {
+  changed = true;
+}
+
 void setup() {
 
 #if (DEBUG)
@@ -124,7 +141,7 @@ void setup() {
     Bluefruit.setConnLedInterval(250);
 
     // Fire up the UART over BLE
-    bleuart.beign();
+    bleuart.begin();
     bleuart.setRxCallback(bleuart_rx_callback);
 
     // Scan for da maus and try to connect
@@ -135,7 +152,7 @@ void setup() {
     Bluefruit.Scanner.start(0);
 
     // Attach interrupt handler to joystick IRQ line
-    //attachInterrupt(PIN_SEESAW_IRQ, joy_irq, CHANGE);
+    attachInterrupt(PIN_SEESAW_IRQ, joy_irq, CHANGE);
 
     // Set LED phasers to GLOW (wat)
     //pinMode(PIN_LED, OUTPUT);
@@ -147,7 +164,8 @@ void setup() {
 
 void loop() {
 
-  if (!digitalRead(PIN_SEESAW_IRQ)) {
+  if (changed) {
+    changed = false;
     butts = joy.digitalReadBulk(BUTTON_MASK);
     if (!(butts & BUTTON_RIGHT)) {
       DPRINTLN(F("RIGHT"));
@@ -166,23 +184,17 @@ void loop() {
     }
   }
 
-  x = joy.analogRead(2);
-  y = joy.analogRead(3);
-  if (HAS_X_MOVED || HAS_Y_MOVED) {
-    SerialUSB.print("x: ");
-    SerialUSB.print(x);
-    SerialUSB.print(" y: ");
-    SerialUSB.print(y);
-    SerialUSB.println();
-    if (ble.isConnected()) {
-      ble.print("x ");
-      ble.println(x);
-      ble.print("y ");
-      ble.println(y);
-    }
-    last_x = x;
-    last_y = y;
-  }
+  //x = joy.analogRead(2);
+  //y = joy.analogRead(3);
+  //if (HAS_X_MOVED || HAS_Y_MOVED) {
+  //  DPRINT(F("x: "));
+  //  DPRINT(x);
+  //  DPRINT(F(" y: "));
+  //  DPRINT(y);
+  //  DPRINTLN();
+  //  last_x = x;
+  //  last_y = y;
+  //}
 
 }
 

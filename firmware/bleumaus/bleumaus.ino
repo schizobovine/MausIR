@@ -11,6 +11,22 @@
 #include <bluefruit.h>
 #include <Adafruit_LittleFS.h>
 #include <InternalFileSystem.h>
+#include <Chrono.h>
+
+
+//
+// Debugging macros/settings
+//
+
+#define DEBUG_SERIAL      (1)
+
+#if (DEBUG_SERIAL)
+#define DPRINT(...) Serial.print(__VA_ARGS__)
+#define DPRINTLN(...) Serial.println(__VA_ARGS__)
+#else
+#define DPRINT(...)
+#define DPRINTLN(...)
+#endif
 
 //
 // Command structure: 5 bytes total, 4 data + 1 checksum
@@ -22,15 +38,27 @@
 // byte 4 => checksum
 //
 
-#define BLE_UART_NAME  ("BleuMaus")
-#define DEBUG_SERIAL   (1)
-
 #define CMD_BUFF_SZ       (5)
 #define CMD_BYTE_HEADER   (0) // '!'
 #define CMD_BYTE_TYPE     (1) // B:button, L:GPS, Q:quaternion, M:mag, A:acc
 #define CMD_BYTE_BUTTON   (2)
 #define CMD_BYTE_PRESSED  (3)
 #define CMD_BYTE_CHECKSUM (4)
+
+#define CMD_DURATION      (200) // in ms, how long should a movement command
+                                // "run" before returning to coasting?
+
+#define PWM_SPEED         (127) // Out of 255, how hard to push?
+
+// Is channel A the:
+//  LEFT  (true)  -OR-  RIGHT (false)
+// wheel?
+#define IS_A_LEFT         (false)
+
+// Is "forward" actually "reverse"?
+#define REVERSED          (true)
+
+#define BLE_UART_NAME     ("BleuMaus")
 
 #define BUTTON_UP         ('5')
 #define BUTTON_DOWN       ('6')
@@ -53,60 +81,125 @@ BLEBas  ble_bas;  // BLE battery service
 // Command buffer
 byte cmd[CMD_BUFF_SZ];
 
-#if (DEBUG_SERIAL)
-#define DPRINT(...) Serial.print(__VA_ARGS__)
-#define DPRINTLN(...) Serial.println(__VA_ARGS__)
-#else
-#define DPRINT(...)
-#define DPRINTLN(...)
-#endif
+// Command duration timer
+Chrono cmd_timer;
+
+// Current movement command
+enum move_dir {
+    DIR_NONE,
+    DIR_FORWARD,
+    DIR_LEFT,
+    DIR_RIGHT,
+    DIR_REVERSE,
+} curr_move = DIR_NONE, last_move = DIR_NONE;
+
+// Shortcut macro
+#define IS_MOVING(x) ((x) != DIR_NONE)
 
 //
 // checksum algorithm: sum bytes in message, then invert. e.g., '!B51':
 //
 // 33 + 66 + 53 + 49 => 201 => 0b11001001 => 0b00110110 => 54 => '6'
 //
-bool verify_checksum() {
+bool verify_checksum(byte *cmd_buff, size_t len) {
+    size_t i;
     uint8_t counter = 0;
-    for (int i=0; i<CMD_BUFF_SZ-1; i++) {
-      counter += cmd[i];
+    for (i=0; i<len-1; i++) {
+      counter += cmd_buff[i];
     }
     counter = ~counter;
-    return (counter == cmd[CMD_BYTE_CHECKSUM]);
+    return (counter == cmd_buff[i]);
 }
 
-//
-// Dispatch button presses to movement commands
-//
-void dispatch(char button, char pressed) {
-  bool released = false;
+/**
+ * Dispatch button presses to movement commands.
+ * @param button Which button was pressed?
+ * @param pressed 1 if a button down event, 0 if button up
+ */
+void dispatch_command(char button, char pressed) {
+    bool released = false;
 
-  if (pressed == '0') {
-    released = true;
-  }
+    if (pressed == '0') {
+        released = true;
+    }
 
-  switch (button) {
+    switch (button) {
+        case BUTTON_UP:
+            DPRINTLN(F("^"));
+            curr_move = DIR_FORWARD;
+            cmd_timer.restart();
+            break;
+        case BUTTON_DOWN:
+            DPRINTLN(F("v"));
+            curr_move = DIR_REVERSE;
+            cmd_timer.restart();
+            break;
+        case BUTTON_LEFT:
+            DPRINTLN(F("<"));
+            curr_move = DIR_LEFT;
+            cmd_timer.restart();
+            break;
+        case BUTTON_RIGHT:
+            DPRINTLN(F(">"));
+            curr_move = DIR_RIGHT;
+            cmd_timer.restart();
+            break;
+        default:
+            DPRINTLN(F("WAT"));
+            break;
+    }
+}
 
-    case BUTTON_UP:
-      DPRINTLN(F("^"));
-      break;
-
-    case BUTTON_DOWN:
-      DPRINTLN(F("v"));
-      break;
-
-    case BUTTON_LEFT:
-      DPRINTLN(F("<"));
-      break;
-
-    case BUTTON_RIGHT:
-      DPRINTLN(F(">"));
-      break;
-
-    default:
-      DPRINTLN(F("WAT"));
-      break;
-  }
+/**
+ * Dispatch movement commands.
+ */
+void dispatch_movement() {
+    switch (curr_move) {
+        case DIR_FORWARD:
+            digitalWrite(PIN_SLEEP, HIGH);
+            digitalWrite(PIN_AIN1, (REVERSED) ? LOW : HIGH);
+            digitalWrite(PIN_BIN1, (REVERSED) ? LOW : HIGH);
+            analogWrite(PIN_AIN2, PWM_SPEED);
+            analogWrite(PIN_BIN2, PWM_SPEED);
+            if (curr_move != last_move) DPRINTLN(F("FORWARD"));
+            break;
+        case DIR_REVERSE:
+            digitalWrite(PIN_SLEEP, HIGH);
+            digitalWrite(PIN_AIN1, (REVERSED) ? HIGH : LOW);
+            digitalWrite(PIN_BIN1, (REVERSED) ? HIGH : LOW);
+            analogWrite(PIN_AIN2, PWM_SPEED);
+            analogWrite(PIN_BIN2, PWM_SPEED);
+            if (curr_move != last_move) DPRINTLN(F("REVERSE"));
+            break;
+        case DIR_LEFT:
+            digitalWrite(PIN_SLEEP, HIGH);
+            digitalWrite(PIN_AIN1, (IS_A_LEFT) ? LOW : HIGH);
+            digitalWrite(PIN_BIN1, (IS_A_LEFT) ? HIGH : LOW);
+            analogWrite(PIN_AIN2, PWM_SPEED);
+            analogWrite(PIN_BIN2, PWM_SPEED);
+            if (curr_move != last_move) DPRINTLN(F("LEFT"));
+            break;
+        case DIR_RIGHT:
+            digitalWrite(PIN_SLEEP, HIGH);
+            digitalWrite(PIN_AIN1, (IS_A_LEFT) ? HIGH : LOW);
+            digitalWrite(PIN_BIN1, (IS_A_LEFT) ? LOW : HIGH);
+            analogWrite(PIN_AIN2, PWM_SPEED);
+            analogWrite(PIN_BIN2, PWM_SPEED);
+            if (curr_move != last_move) DPRINTLN(F("RIGHT"));
+            break;
+        default:
+            DPRINTLN(F("WAAAAAAAAAAAAAT"));
+            // Intentional fall-through to DIR_NONE case
+        case DIR_NONE:
+            digitalWrite(PIN_SLEEP, LOW);
+            digitalWrite(PIN_AIN1, LOW);
+            digitalWrite(PIN_AIN2, LOW);
+            digitalWrite(PIN_BIN1, LOW);
+            digitalWrite(PIN_BIN2, LOW);
+            if (curr_move != last_move) DPRINTLN(F("STOP"));
+            break;
+    }
+    last_move = curr_move;
 }
 
 /**
@@ -133,8 +226,8 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
 }
 
 void setup() {
-  pinMode(17, OUTPUT);
-  digitalWrite(17, HIGH);
+    //pinMode(17, OUTPUT);
+    //digitalWrite(17, HIGH);
 
     // Setup serial connection, hopefully this doesn't stall?
 #if (DEBUG_SERIAL)
@@ -223,11 +316,24 @@ void loop() {
       for (int i=0; i<CMD_BUFF_SZ; i++) {
         cmd[i] = ble_uart.read();
       }
-      if (verify_checksum()) {
-        dispatch(cmd[CMD_BYTE_BUTTON], cmd[CMD_BYTE_PRESSED]);
+      if (verify_checksum(cmd, sizeof(cmd))) {
+        dispatch_command(cmd[CMD_BYTE_BUTTON], cmd[CMD_BYTE_PRESSED]);
       }
     }
 
+    // If we are supposed to be moving, do so.
+    dispatch_movement();
+
+    // If timer has expired and we've been moving, stop.
+    if (cmd_timer.hasPassed(CMD_DURATION)) {
+        if (IS_MOVING(curr_move)) {
+            curr_move = DIR_NONE;
+        }
+    }
+
+    // Yield to do other stuff.
+    delay(10);
+
 }
 
-// vi: syntax=arduino
+// vi: syntax=arduino ts=4 sw=4

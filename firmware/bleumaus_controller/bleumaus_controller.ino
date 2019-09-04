@@ -26,13 +26,15 @@
 #define DPRINTLN(...)
 #endif
 
-#define BUTTON_RIGHT    (1 << 6)
-#define BUTTON_DOWN     (1 << 7)
-#define BUTTON_LEFT     (1 << 9)
-#define BUTTON_UP       (1 << 10)
-#define BUTTON_SEL      (1 << 14)
-#define CHANNEL_X       (3)
-#define CHANNEL_Y       (2)
+#define BUTTON_RIGHT      (1 << 6)
+#define BUTTON_DOWN       (1 << 7)
+#define BUTTON_LEFT       (1 << 9)
+#define BUTTON_UP         (1 << 10)
+#define BUTTON_SEL        (1 << 14)
+#define CHANNEL_X         (3)
+#define CHANNEL_Y         (2)
+#define INVERT_Y_AXIS     (true)
+#define MOTOR_X_CHOP_BITS (4)
 
 //const uint32_t BUTTON_MASK = 0xffffffff;
 const uint32_t BUTTON_MASK = 
@@ -53,10 +55,10 @@ const uint32_t BUTTON_MASK =
 #define FILE_O_READ (Adafruit_LittleFS_Namespace::FILE_O_READ)
 #define FILE_O_WRITE (Adafruit_LittleFS_Namespace::FILE_O_WRITE)
 
-#define DPAD(x, width, pad_char) \
+#define DPAD(x, width, pad_char, base) \
     do { \
         for (size_t _i=width; _i > 0; _i--) { \
-            if ((_i == 1 && (x) >= 0) || (abs(x) < pow(10, _i-1))) { \
+            if ((_i == 1 && (x) >= 0) || (abs(x) < pow(base, _i-1))) { \
                 DPRINT(pad_char); \
             } \
         } \
@@ -71,18 +73,25 @@ const int16_t MOTOR_SCALE_X = 128;
 
 Adafruit_seesaw joy;
 BLEClientUart bleuart;
-Adafruit_LittleFS_Namespace::File caldata(InternalFS);
+Adafruit_LittleFS_Namespace::File calibrationDataFile(InternalFS);
 
+// Bitmask for button presses
 uint32_t curr_butts = 0;
 uint32_t last_butts = 0;
+
+// Current and last joystick position
 int16_t last_x = 0;
 int16_t last_y = 0;
 int16_t x = 0;
 int16_t y = 0;
-int16_t motor_l = 0;
-int16_t motor_r = 0;
+
+// Subtracted out to re-home coordinates to 0,0
 int16_t calibrate_x = 512;
 int16_t calibrate_y = 512;
+
+// Current speed values to send to mouse
+int16_t motor_l = 0;
+int16_t motor_r = 0;
 
 /**
  * Invoked when UART receives data.
@@ -138,10 +147,23 @@ void scan_callback(ble_gap_evt_adv_report_t *report) {
  * Read in calibration data from save file on internal FS.
  */
 void read_calibration_data() {
-    if (caldata.open(CALIBRATE_FILENAME, FILE_O_READ)) {
-        caldata.read((uint8_t*)&calibrate_x, sizeof(calibrate_x));
-        caldata.read((uint8_t*)&calibrate_y, sizeof(calibrate_y));
-        caldata.close();
+    if (calibrationDataFile.open(CALIBRATE_FILENAME, FILE_O_READ)) {
+
+        uint8_t buff[4];
+        calibrationDataFile.seek(0);
+        calibrationDataFile.read(buff, sizeof(buff));
+        calibrationDataFile.close();
+
+        DPRINT(F("buff = "));
+        DPRINT(buff[0]); DPRINT(F(" "));
+        DPRINT(buff[1]); DPRINT(F(" "));
+        DPRINT(buff[2]); DPRINT(F(" "));
+        DPRINT(buff[3]);
+        DPRINTLN();
+
+        calibrate_x = (buff[0] << 8) | (buff[1]);
+        calibrate_y = (buff[2] << 8) | (buff[3]);
+
         DPRINT(F("Reading caliration data: x = "));
         DPRINT(calibrate_x);
         DPRINT(F(", y = "));
@@ -153,37 +175,42 @@ void read_calibration_data() {
  * Write out calibration data to file on internal FS.
  */
 void write_calibration_data() {
-    if (caldata.open(CALIBRATE_FILENAME, FILE_O_WRITE)) {
 
-        byte buff[4];
-        buff[0] = (calibrate_x >> 8) && 0xFF;
-        buff[1] = (calibrate_x >> 0) && 0xFF;
-        buff[2] = (calibrate_y >> 8) && 0xFF;
-        buff[3] = (calibrate_y >> 0) && 0xFF;
+    if (InternalFS.exists(CALIBRATE_FILENAME)) {
+        InternalFS.remove(CALIBRATE_FILENAME);
+    }
+
+    if (calibrationDataFile.open(CALIBRATE_FILENAME, FILE_O_WRITE)) {
+
+        uint8_t buff[4];
+        buff[0] = (calibrate_x >> 8);
+        buff[1] = (calibrate_x >> 0);
+        buff[2] = (calibrate_y >> 8);
+        buff[3] = (calibrate_y >> 0);
 
         DPRINT(F("Writing caliration data: x = "));
         DPRINT(calibrate_x);
         DPRINT(F(", y = "));
         DPRINTLN(calibrate_y);
 
-        DPAD(buff[0], 2, "0"); DPRINT(buff[0], HEX);
-        DPAD(buff[1], 2, "0"); DPRINT(buff[1], HEX);
-        DPAD(buff[2], 2, "0"); DPRINT(buff[2], HEX);
-        DPAD(buff[3], 2, "0"); DPRINT(buff[3], HEX);
+        DPRINT(F("buff = "));
+        DPRINT(buff[0]); DPRINT(F(" "));
+        DPRINT(buff[1]); DPRINT(F(" "));
+        DPRINT(buff[2]); DPRINT(F(" "));
+        DPRINT(buff[3]);
         DPRINTLN();
 
-        //caldata.write((uint8_t*)&calibrate_x, sizeof(calibrate_x));
-        //caldata.write((uint8_t*)&calibrate_y, sizeof(calibrate_y));
-        caldata.write(buff, sizeof(buff));
-        caldata.flush();
-        caldata.close();
+        calibrationDataFile.seek(0);
+        calibrationDataFile.write(buff, sizeof(buff));
+        calibrationDataFile.flush();
+        calibrationDataFile.close();
 
     }
 }
 
 /**
  * Recalibrate joystick assuming current coordinates are the new origin.
- */
+ A*/
 void calibrate_joystick() {
     calibrate_x = joy.analogRead(CHANNEL_X);
     calibrate_y = joy.analogRead(CHANNEL_Y);
@@ -252,54 +279,36 @@ void loop() {
         }
         if (!(curr_butts & BUTTON_SEL)) {
             DPRINTLN(F("SELECT"));
-            // TODO add joystick calibration / recentering function here
             calibrate_joystick();
             write_calibration_data();
         }
     }
 
-    // Subtracting 512 to re-center origin at 0,0
+    // Subtracting calibration value to re-center origin at 0,0
     x = joy.analogRead(CHANNEL_X) - calibrate_x;
+#if INVERT_Y_AXIS
     y = -(joy.analogRead(CHANNEL_Y) - calibrate_y);
+#else
+    y = joy.analogRead(CHANNEL_Y) - calibrate_y;
+#endif
 
     // If we've seen enough of a change, dispatch new movement command
     if (HAS_MOVED(x, last_x) || HAS_MOVED(y, last_y)) {
 
-        //if (y >= 0) {
-        //    motor_l = (x>=0) ? (MOTOR_MAX) : (MOTOR_MAX + x);
-        //    motor_r = (x>=0) ? (MOTOR_MAX - x) : (MOTOR_MAX);
-        //} else {
-        //    motor_l = (x>=0) ? (MOTOR_MAX - x) : (MOTOR_MAX);
-        //    motor_r = (x>=0) ? (MOTOR_MAX) : (MOTOR_MAX + x);
-        //}
-
-        motor_l  = MOTOR_SCALE_Y * y / MOTOR_SCALE_Y;
-        motor_l += MOTOR_SCALE_X * x / MOTOR_SCALE_X;
-
-        motor_r  = MOTOR_SCALE_Y * y / MOTOR_SCALE_Y;
-        motor_r -= MOTOR_SCALE_X * x / MOTOR_SCALE_X;
-
-        //if (x < 0) {
-        //    motor_l = motor_l + ((x<0) ? x : -x);
-        //    motor_r = motor_r + ((x<0) ? -x : x);
-        //} else {
-        //    motor_l = motor_l + ((x<0) ? x : -x);
-        //    motor_r = motor_r + ((x<0) ? -x : x);
-        //}
-
-        //if (y < 0) {
-        //    motor_l = -motor_l;
-        //    motor_r = -motor_r;
-        //}
-
-        DPRINT(F( "x: ")); DPAD(x,       4, F(" ")); DPRINT(x);
-        DPRINT(F(" y: ")); DPAD(y,       4, F(" ")); DPRINT(y);
-        DPRINT(F(" L: ")); DPAD(motor_l, 4, F(" ")); DPRINT(motor_l);
-        DPRINT(F(" R: ")); DPAD(motor_r, 4, F(" ")); DPRINT(motor_r);
-        DPRINTLN();
-
         last_x = x;
         last_y = y;
+
+        motor_l  = MOTOR_SCALE_Y * y / MOTOR_SCALE_Y;
+        motor_l += MOTOR_SCALE_X * (x >> MOTOR_X_CHOP_BITS) / MOTOR_SCALE_X;
+
+        motor_r  = MOTOR_SCALE_Y * y / MOTOR_SCALE_Y;
+        motor_r -= MOTOR_SCALE_X * (x >> MOTOR_X_CHOP_BITS) / MOTOR_SCALE_X;
+
+        DPRINT(F( "x: ")); DPAD(x,       4, F(" "), 10); DPRINT(x);
+        DPRINT(F(" y: ")); DPAD(y,       4, F(" "), 10); DPRINT(y);
+        DPRINT(F(" L: ")); DPAD(motor_l, 4, F(" "), 10); DPRINT(motor_l);
+        DPRINT(F(" R: ")); DPAD(motor_r, 4, F(" "), 10); DPRINT(motor_r);
+        DPRINTLN();
 
     }
 

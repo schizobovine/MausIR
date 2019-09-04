@@ -34,7 +34,7 @@
 #define CHANNEL_X         (3)
 #define CHANNEL_Y         (2)
 #define INVERT_Y_AXIS     (true)
-#define MOTOR_X_CHOP_BITS (4)
+#define MOTOR_X_CHOP_BITS (0)
 
 //const uint32_t BUTTON_MASK = 0xffffffff;
 const uint32_t BUTTON_MASK = 
@@ -64,8 +64,11 @@ const uint32_t BUTTON_MASK =
         } \
     } while (0)
 
-const int16_t MOTOR_SCALE_Y = 512;
-const int16_t MOTOR_SCALE_X = 128;
+const int16_t JOY_MIN = -511;
+const int16_t JOY_MAX = 512;
+const int16_t JOY_THRESH = 511;
+const int16_t MOTOR_MIN = -127;
+const int16_t MOTOR_MAX = 128;
 
 //
 // Global objects
@@ -86,8 +89,8 @@ int16_t x = 0;
 int16_t y = 0;
 
 // Subtracted out to re-home coordinates to 0,0
-int16_t calibrate_x = 512;
-int16_t calibrate_y = 512;
+int16_t calibrate_x = JOY_MAX;
+int16_t calibrate_y = JOY_MAX;
 
 // Current speed values to send to mouse
 int16_t motor_l = 0;
@@ -298,11 +301,11 @@ void loop() {
         last_x = x;
         last_y = y;
 
-        motor_l  = MOTOR_SCALE_Y * y / MOTOR_SCALE_Y;
-        motor_l += MOTOR_SCALE_X * (x >> MOTOR_X_CHOP_BITS) / MOTOR_SCALE_X;
+        motor_l = constrain(y + x, JOY_MIN, JOY_MAX);
+        motor_l = map(motor_l, JOY_MIN, JOY_MAX, MOTOR_MIN, MOTOR_MAX);
 
-        motor_r  = MOTOR_SCALE_Y * y / MOTOR_SCALE_Y;
-        motor_r -= MOTOR_SCALE_X * (x >> MOTOR_X_CHOP_BITS) / MOTOR_SCALE_X;
+        motor_r = constrain(y - x, JOY_MIN, JOY_MAX);
+        motor_r = map(motor_r, JOY_MIN, JOY_MAX, MOTOR_MIN, MOTOR_MAX);
 
         DPRINT(F( "x: ")); DPAD(x,       4, F(" "), 10); DPRINT(x);
         DPRINT(F(" y: ")); DPAD(y,       4, F(" "), 10); DPRINT(y);

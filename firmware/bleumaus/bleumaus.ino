@@ -60,11 +60,6 @@
 
 #define BLE_UART_NAME     ("BleuMaus")
 
-#define BUTTON_UP         ('5')
-#define BUTTON_DOWN       ('6')
-#define BUTTON_LEFT       ('7')
-#define BUTTON_RIGHT      ('8')
-
 #define PIN_AIN1          (4)
 #define PIN_AIN2          (5)
 #define PIN_BIN1          (3)
@@ -84,122 +79,45 @@ byte cmd[CMD_BUFF_SZ];
 // Command duration timer
 Chrono cmd_timer;
 
-// Current movement command
-enum move_dir {
-    DIR_NONE,
-    DIR_FORWARD,
-    DIR_LEFT,
-    DIR_RIGHT,
-    DIR_REVERSE,
-} curr_move = DIR_NONE, last_move = DIR_NONE;
-
-// Shortcut macro
-#define IS_MOVING(x) ((x) != DIR_NONE)
-
-//
-// checksum algorithm: sum bytes in message, then invert. e.g., '!B51':
-//
-// 33 + 66 + 53 + 49 => 201 => 0b11001001 => 0b00110110 => 54 => '6'
-//
-bool verify_checksum(byte *cmd_buff, size_t len) {
-    size_t i;
-    uint8_t counter = 0;
-    for (i=0; i<len-1; i++) {
-      counter += cmd_buff[i];
-    }
-    counter = ~counter;
-    return (counter == cmd_buff[i]);
-}
-
-/**
- * Dispatch button presses to movement commands.
- * @param button Which button was pressed?
- * @param pressed 1 if a button down event, 0 if button up
- */
-void dispatch_command(char button, char pressed) {
-    bool released = false;
-
-    if (pressed == '0') {
-        released = true;
-    }
-
-    switch (button) {
-        case BUTTON_UP:
-            DPRINTLN(F("^"));
-            curr_move = DIR_FORWARD;
-            cmd_timer.restart();
-            break;
-        case BUTTON_DOWN:
-            DPRINTLN(F("v"));
-            curr_move = DIR_REVERSE;
-            cmd_timer.restart();
-            break;
-        case BUTTON_LEFT:
-            DPRINTLN(F("<"));
-            curr_move = DIR_LEFT;
-            cmd_timer.restart();
-            break;
-        case BUTTON_RIGHT:
-            DPRINTLN(F(">"));
-            curr_move = DIR_RIGHT;
-            cmd_timer.restart();
-            break;
-        default:
-            DPRINTLN(F("WAT"));
-            break;
-    }
-}
+// Motor speed variables
+int16_t curr_motor_l = 0;
+int16_t curr_motor_r = 0;
 
 /**
  * Dispatch movement commands.
  */
 void dispatch_movement() {
-    switch (curr_move) {
-        case DIR_FORWARD:
-            digitalWrite(PIN_SLEEP, HIGH);
-            digitalWrite(PIN_AIN1, (REVERSED) ? LOW : HIGH);
-            digitalWrite(PIN_BIN1, (REVERSED) ? LOW : HIGH);
-            analogWrite(PIN_AIN2, PWM_SPEED);
-            analogWrite(PIN_BIN2, PWM_SPEED);
-            if (curr_move != last_move) DPRINTLN(F("FORWARD"));
-            break;
-        case DIR_REVERSE:
-            digitalWrite(PIN_SLEEP, HIGH);
-            digitalWrite(PIN_AIN1, (REVERSED) ? HIGH : LOW);
-            digitalWrite(PIN_BIN1, (REVERSED) ? HIGH : LOW);
-            analogWrite(PIN_AIN2, PWM_SPEED);
-            analogWrite(PIN_BIN2, PWM_SPEED);
-            if (curr_move != last_move) DPRINTLN(F("REVERSE"));
-            break;
-        case DIR_LEFT:
-            digitalWrite(PIN_SLEEP, HIGH);
-            digitalWrite(PIN_AIN1, (IS_A_LEFT) ? LOW : HIGH);
-            digitalWrite(PIN_BIN1, (IS_A_LEFT) ? HIGH : LOW);
-            analogWrite(PIN_AIN2, PWM_SPEED);
-            analogWrite(PIN_BIN2, PWM_SPEED);
-            if (curr_move != last_move) DPRINTLN(F("LEFT"));
-            break;
-        case DIR_RIGHT:
-            digitalWrite(PIN_SLEEP, HIGH);
-            digitalWrite(PIN_AIN1, (IS_A_LEFT) ? HIGH : LOW);
-            digitalWrite(PIN_BIN1, (IS_A_LEFT) ? LOW : HIGH);
-            analogWrite(PIN_AIN2, PWM_SPEED);
-            analogWrite(PIN_BIN2, PWM_SPEED);
-            if (curr_move != last_move) DPRINTLN(F("RIGHT"));
-            break;
-        default:
-            DPRINTLN(F("WAAAAAAAAAAAAAT"));
-            // Intentional fall-through to DIR_NONE case
-        case DIR_NONE:
-            digitalWrite(PIN_SLEEP, LOW);
-            digitalWrite(PIN_AIN1, LOW);
-            digitalWrite(PIN_AIN2, LOW);
-            digitalWrite(PIN_BIN1, LOW);
-            digitalWrite(PIN_BIN2, LOW);
-            if (curr_move != last_move) DPRINTLN(F("STOP"));
-            break;
+    if (curr_motor_l > 0 && curr_motor_r > 0) { //forward
+        digitalWrite(PIN_SLEEP, HIGH);
+        digitalWrite(PIN_AIN1, (REVERSED) ? LOW : HIGH);
+        digitalWrite(PIN_BIN1, (REVERSED) ? LOW : HIGH);
+        analogWrite(PIN_AIN2, abs((IS_A_LEFT) ? curr_motor_l : curr_motor_r));
+        analogWrite(PIN_BIN2, abs((IS_A_LEFT) ? curr_motor_r : curr_motor_l));
+    } else if (curr_motor_l > 0 && curr_motor_r < 0) { // right
+        digitalWrite(PIN_SLEEP, HIGH);
+        digitalWrite(PIN_AIN1, (IS_A_LEFT) ? HIGH : LOW);
+        digitalWrite(PIN_BIN1, (IS_A_LEFT) ? LOW : HIGH);
+        analogWrite(PIN_AIN2, abs((IS_A_LEFT) ? curr_motor_l : curr_motor_r));
+        analogWrite(PIN_BIN2, abs((IS_A_LEFT) ? curr_motor_r : curr_motor_l));
+    } else if (curr_motor_l < 0 && curr_motor_r > 0) { // left
+        digitalWrite(PIN_SLEEP, HIGH);
+        digitalWrite(PIN_AIN1, (IS_A_LEFT) ? LOW : HIGH);
+        digitalWrite(PIN_BIN1, (IS_A_LEFT) ? HIGH : LOW);
+        analogWrite(PIN_AIN2, abs((IS_A_LEFT) ? curr_motor_l : curr_motor_r));
+        analogWrite(PIN_BIN2, abs((IS_A_LEFT) ? curr_motor_r : curr_motor_l));
+    } else if (curr_motor_l < 0 && curr_motor_r < 0) { // reverse
+        digitalWrite(PIN_SLEEP, HIGH);
+        digitalWrite(PIN_AIN1, (REVERSED) ? HIGH : LOW);
+        digitalWrite(PIN_BIN1, (REVERSED) ? HIGH : LOW);
+        analogWrite(PIN_AIN2, abs((IS_A_LEFT) ? curr_motor_l : curr_motor_r));
+        analogWrite(PIN_BIN2, abs((IS_A_LEFT) ? curr_motor_r : curr_motor_l));
+    } else {
+        digitalWrite(PIN_SLEEP, LOW);
+        digitalWrite(PIN_AIN1, LOW);
+        digitalWrite(PIN_AIN2, LOW);
+        digitalWrite(PIN_BIN1, LOW);
+        digitalWrite(PIN_BIN2, LOW);
     }
-    last_move = curr_move;
 }
 
 /**
@@ -312,13 +230,17 @@ void loop() {
   
     // If a command is available, read it, verify the checksum and then
     // dispatch if it passes.
-    if (ble_uart.available() >= CMD_BUFF_SZ) {
-      for (int i=0; i<CMD_BUFF_SZ; i++) {
-        cmd[i] = ble_uart.read();
-      }
-      if (verify_checksum(cmd, sizeof(cmd))) {
-        dispatch_command(cmd[CMD_BYTE_BUTTON], cmd[CMD_BYTE_PRESSED]);
-      }
+    if (ble_uart.available()) {
+        if (ble_uart.find("L")) {
+            curr_motor_l = (int16_t) ble_uart.parseInt(SKIP_NONE);
+            if (ble_uart.find("R")) {
+                curr_motor_r = (int16_t) ble_uart.parseInt(SKIP_NONE);
+            } else {
+                curr_motor_l = curr_motor_r = 0;
+            }
+        } else {
+            curr_motor_l = curr_motor_r = 0;
+        }
     }
 
     // If we are supposed to be moving, do so.
@@ -326,8 +248,9 @@ void loop() {
 
     // If timer has expired and we've been moving, stop.
     if (cmd_timer.hasPassed(CMD_DURATION)) {
-        if (IS_MOVING(curr_move)) {
-            curr_move = DIR_NONE;
+        if (curr_motor_l != 0 || curr_motor_r != 0) {
+            curr_motor_l = 0;
+            curr_motor_r = 0;
         }
     }
 

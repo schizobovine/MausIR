@@ -64,18 +64,20 @@ const uint32_t BUTTON_MASK =
         } \
     } while (0)
 
-const int16_t JOY_MIN = -511;
+const int16_t JOY_MIN = -512;
 const int16_t JOY_MAX = 512;
 const int16_t JOY_THRESH = 511;
-const int16_t MOTOR_MIN = -127;
-const int16_t MOTOR_MAX = 128;
+const int16_t MOTOR_MIN = -255;
+const int16_t MOTOR_MAX = 255;
 
 //
 // Global objects
 //
 
 Adafruit_seesaw joy;
-BLEClientUart bleuart;
+BLEClientDis  bledis;  // Device Information Service (DIS)
+BLEDfu        bledfu;  // Over-the-air (OTA) Device Firmware Update (DFU)
+BLEClientUart bleuart; // UART service
 Adafruit_LittleFS_Namespace::File calibrationDataFile(InternalFS);
 
 // Bitmask for button presses
@@ -243,13 +245,27 @@ void setup() {
     read_calibration_data();
 
     // Initialize BLE in Central mode
-    Bluefruit.begin(0, 1);
+    Bluefruit.begin(0, 1); // Max 0 peripheral, 1 central connection
     Bluefruit.setName("BleuMaus Controller");
-    Bluefruit.setConnLedInterval(250);
+
+    // Make sure to execute any incoming OTA DFUs
+    bledfu.begin();
+    DPRINTLN(F("Bluefruit: DFU (maybe) done"));
+
+    // Configure device info service (DIS) client
+    DPRINTLN(F("Device Information Service (DIS) begin()"));
+    bledis.begin();
 
     // Fire up the UART over BLE
     bleuart.begin();
     bleuart.setRxCallback(bleuart_rx_callback);
+
+    // Different blink rate than peripheral advertising mode
+    Bluefruit.setConnLedInterval(250);
+    
+    // Central mode callbacks
+    Bluefruit.Central.setConnectCallback(connect_callback);
+    Bluefruit.Central.setDisconnectCallback(disconnect_callback);
 
     // Scan for da maus and try to connect
     Bluefruit.Scanner.setRxCallback(scan_callback);
@@ -312,6 +328,28 @@ void loop() {
         DPRINT(F(" L: ")); DPAD(motor_l, 4, F(" "), 10); DPRINT(motor_l);
         DPRINT(F(" R: ")); DPAD(motor_r, 4, F(" "), 10); DPRINT(motor_r);
         DPRINTLN();
+
+        if (Bluefruit.Central.connected() && bleuart.discovered()) {
+            uint8_t buff[4];
+
+            buff[0] = (char)(motor_l & 0xFF);
+            buff[1] = (motor_l >= 0) ? buff[0] : -buff[0];
+            buff[2] = (char)(motor_r & 0xFF);
+            buff[3] = (motor_r >= 0) ? buff[1] : -buff[1];
+
+            DPRINT(F("L"));
+            DPRINT(motor_l, DEC);
+            DPRINT(F("R"));
+            DPRINTLN(motor_r, DEC);
+            //DPRINT(buff[1], HEX); DPRINT(F(", "));
+            //DPRINT(buff[2], HEX); DPRINT(F(", "));
+            //DPRINT(buff[3], HEX); DPRINTLN(F(" }"));
+
+            bleuart.print(F("L"));
+            bleuart.print(motor_l, DEC);
+            bleuart.print(F("R"));
+            bleuart.println(motor_r, DEC);
+        }
 
     }
 

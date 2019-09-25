@@ -18,7 +18,7 @@
 // Debugging macros/settings
 //
 
-#define DEBUG_SERIAL      (1)
+#define DEBUG_SERIAL      (0)
 
 #if (DEBUG_SERIAL)
 #define DPRINT(...) Serial.print(__VA_ARGS__)
@@ -38,17 +38,17 @@
 // byte 4 => checksum
 //
 
-#define CMD_BUFF_SZ       (5)
-#define CMD_BYTE_HEADER   (0) // '!'
-#define CMD_BYTE_TYPE     (1) // B:button, L:GPS, Q:quaternion, M:mag, A:acc
-#define CMD_BYTE_BUTTON   (2)
-#define CMD_BYTE_PRESSED  (3)
-#define CMD_BYTE_CHECKSUM (4)
+//#define CMD_BUFF_SZ       (5)
+//#define CMD_BYTE_HEADER   (0) // '!'
+//#define CMD_BYTE_TYPE     (1) // B:button, L:GPS, Q:quaternion, M:mag, A:acc
+//#define CMD_BYTE_BUTTON   (2)
+//#define CMD_BYTE_PRESSED  (3)
+//#define CMD_BYTE_CHECKSUM (4)
 
-#define CMD_DURATION      (200) // in ms, how long should a movement command
+#define CMD_DURATION      (500) // in ms, how long should a movement command
                                 // "run" before returning to coasting?
 
-#define PWM_SPEED         (127) // Out of 255, how hard to push?
+//#define PWM_SPEED         (127) // Out of 255, how hard to push?
 
 // Is channel A the:
 //  LEFT  (true)  -OR-  RIGHT (false)
@@ -74,7 +74,7 @@ BLEUart ble_uart; // UART over BLE
 BLEBas  ble_bas;  // BLE battery service
 
 // Command buffer
-byte cmd[CMD_BUFF_SZ];
+//byte cmd[CMD_BUFF_SZ];
 
 // Command duration timer
 Chrono cmd_timer;
@@ -235,11 +235,14 @@ void loop() {
             curr_motor_l = (int16_t) ble_uart.parseInt(SKIP_NONE);
             if (ble_uart.find("R")) {
                 curr_motor_r = (int16_t) ble_uart.parseInt(SKIP_NONE);
+                ble_uart.println("OK");
             } else {
                 curr_motor_l = curr_motor_r = 0;
+                ble_uart.println("WAT");
             }
         } else {
             curr_motor_l = curr_motor_r = 0;
+            ble_uart.println("WAT");
         }
     }
 

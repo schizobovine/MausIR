@@ -13,10 +13,7 @@
 #include <InternalFileSystem.h>
 #include <Chrono.h>
 
-
-//
 // Debugging macros/settings
-//
 
 #define DEBUG_SERIAL      (0)
 
@@ -28,27 +25,8 @@
 #define DPRINTLN(...)
 #endif
 
-//
-// Command structure: 5 bytes total, 4 data + 1 checksum
-//
-// byte 0 => '!'
-// byte 1 => 'B' (for button)
-// byte 2 => '1' (buttons 1-4, up=5, down=6, left=7, right=8)
-// byte 3 => '1' (pressed) or '0' (released)
-// byte 4 => checksum
-//
-
-//#define CMD_BUFF_SZ       (5)
-//#define CMD_BYTE_HEADER   (0) // '!'
-//#define CMD_BYTE_TYPE     (1) // B:button, L:GPS, Q:quaternion, M:mag, A:acc
-//#define CMD_BYTE_BUTTON   (2)
-//#define CMD_BYTE_PRESSED  (3)
-//#define CMD_BYTE_CHECKSUM (4)
-
 #define CMD_DURATION      (500) // in ms, how long should a movement command
                                 // "run" before returning to coasting?
-
-//#define PWM_SPEED         (127) // Out of 255, how hard to push?
 
 // Is channel A the:
 //  LEFT  (true)  -OR-  RIGHT (false)
@@ -227,6 +205,19 @@ void setup() {
 }
 
 void loop() {
+
+    //
+    // Command structure
+    //
+    // In lieu of a more complicated protocol, I've moved to an ASCII-based one
+    // that uses the .parseInt() functions available to decendents of the
+    // Stream class. The mouse looks for commands that look like this:
+    //
+    // L<integer>R<integer>
+    //
+    // Where "<integer>" is a ASCII-representatin decimal integer from 0 to
+    // 255, i.e., used straight as input to analogWrite().
+    //
   
     // If a command is available, read it, verify the checksum and then
     // dispatch if it passes.
